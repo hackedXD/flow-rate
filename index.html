@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Parabolic Bowl Water Pump Sim</title>
+    <title>Custom Bowl Water-Pump Sim</title>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.1/lib/p5.min.js"></script>
     <style>
       :root {
@@ -31,7 +31,7 @@
       }
       #ui {
         width: 260px;
-        height: 520px;
+        height: 540px;
         background: var(--parchment);
         border: 3px solid #e5dec4;
         border-radius: 12px;
@@ -52,6 +52,20 @@
         font-size: 15px;
         color: var(--ink);
         margin-bottom: 6px;
+      }
+      label {
+        font-size: 15px;
+        color: var(--ink);
+        display: block;
+        margin-bottom: 4px;
+      }
+      #funcInput {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 15px;
+        border: 1.5px solid #d6cdb3;
+        border-radius: 6px;
+        margin-bottom: 14px;
       }
       #pumpBtn {
         align-self: center;
@@ -85,6 +99,8 @@
             <div>Level: <span id="waterStat">0</span>%</div>
             <div>Flow rate: <span id="flowStat">0</span> px/s</div>
           </div>
+          <label for="funcInput">Enter f(x) for 0 ≤ x ≤ 1 (JS):</label>
+          <input id="funcInput" type="text" value="Math.pow(x,2)" />
         </div>
         <button id="pumpBtn">PUMP</button>
       </div>
@@ -95,17 +111,38 @@
       // ------------------ CONFIG ------------------
       const CANVAS_W = 520;
       const CANVAS_H = 520;
-      const HALF_BOWL_W = 160; // half-width of bowl rim
-      const BOWL_DEPTH = 180; // vertical depth below rim at center
+      const HALF_BOWL_W = 160; // half-width of bowl rim (px)
+      const BOWL_DEPTH = 180; // depth at center (px)
       const MAX_WATER_H = BOWL_DEPTH; // cap water height at rim
       const PUMP_FLOW_SLOPE = 0.0012; // px/ms² – linear acceleration of flow rate
-      const PIPE_GAP = 180; // vertical gap between pipe end & rim
+      const PIPE_GAP = 140; // vertical gap between pipe end & rim (px)
 
       // ------------------ STATE ------------------
       let buttonPressed = false;
       let pressStart = 0; // ms timestamp of press start
       let flowRate = 0; // px per ms
       let waterH = 0; // current filled height (0–BOWL_DEPTH)
+
+      // Custom bowl function f(x)
+      const funcInput = document.getElementById("funcInput");
+      let fFunc = (x) => Math.pow(x, 2); // default
+
+      function compileFunc() {
+        try {
+          /* create a new function taking x and returning expr */
+          const expr = funcInput.value;
+          const fn = new Function("x", `return (${expr});`);
+          // simple sanity check
+          const test = fn(0.5);
+          if (isFinite(test)) fFunc = fn; // accept
+        } catch (e) {
+          /* ignore invalid */
+        }
+      }
+      funcInput.addEventListener("change", compileFunc);
+      funcInput.addEventListener("keyup", (e) => {
+        if (e.key === "Enter") compileFunc();
+      });
 
       // DOM refs
       const pumpBtn = document.getElementById("pumpBtn");
@@ -165,40 +202,41 @@
         line(pipeX, pipeY0, pipeX, pipeY1);
       }
 
-      // y-coordinate of bowl rim
       function rimY() {
-        return height - 200;
-      }
+        return height - 160;
+      } // adjust bottom margin
 
-      // Draw parabolic bowl and water fill
+      // Draw parabolic/custom bowl and water fill
       function drawBowl() {
         const centerX = width / 2;
         const rimYPos = rimY();
         const bottomY = rimYPos + BOWL_DEPTH;
 
-        // --- outline ---
+        // outline
         beginShape();
         noFill();
         stroke("#6b7280");
         strokeWeight(4);
         for (let x = -HALF_BOWL_W; x <= HALF_BOWL_W; x += 2) {
-          const y =
-            bottomY - (BOWL_DEPTH * (x * x)) / (HALF_BOWL_W * HALF_BOWL_W); // y = bottom - depth*(x/HBW)^2
+          const xn = Math.abs(x / HALF_BOWL_W); // 0 at centre, 1 at rim
+          const depthRatio = constrain(fFunc(xn), 0, 1);
+          const y = bottomY - BOWL_DEPTH * depthRatio;
           vertex(centerX + x, y);
         }
         endShape();
         // flat rim
         line(centerX - HALF_BOWL_W, rimYPos, centerX + HALF_BOWL_W, rimYPos);
 
-        // --- water fill ---
+        // water fill
         if (waterH > 0) {
           const waterSurfaceY = bottomY - waterH;
           drawingContext.save();
           drawingContext.beginPath();
           drawingContext.moveTo(centerX - HALF_BOWL_W, rimYPos);
           for (let x = -HALF_BOWL_W; x <= HALF_BOWL_W; x += 2) {
-            const y =
-              bottomY - (BOWL_DEPTH * (x * x)) / (HALF_BOWL_W * HALF_BOWL_W);
+            const xn = Math.abs(x / HALF_BOWL_W);
+            const depthRatio = constrain(fFunc(xn), 0, 1);
+            const y = bottomY - BOWL_DEPTH * depthRatio;
             drawingContext.lineTo(centerX + x, y);
           }
           drawingContext.closePath();
@@ -233,7 +271,7 @@
           const heldTime = millis() - pressStart;
           flowRate = PUMP_FLOW_SLOPE * heldTime;
         }
-        const deltaH = flowRate * deltaTime; // px since last frame
+        const deltaH = flowRate * deltaTime;
         waterH = constrain(waterH + deltaH, 0, MAX_WATER_H);
         if (!buttonPressed) flowRate = 0;
       }
@@ -242,6 +280,9 @@
         waterStat.textContent = Math.round((waterH / MAX_WATER_H) * 100);
         flowStat.textContent = (flowRate * 1000).toFixed(1);
       }
+
+      // compile initial expression
+      compileFunc();
     </script>
   </body>
 </html>
