@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Parabolic Bowl Water Pump Sim</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.1/lib/p5.min.js"></script>
+    <style>
+      :root {
+        --parchment: #fdf6e3;
+        --ink: #374151;
+        --accent: #2563eb;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f9fafb;
+        font-family: system-ui, sans-serif;
+      }
+      #container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 32px;
+        padding: 24px;
+        height: 100vh;
+      }
+      #ui {
+        width: 260px;
+        height: 520px;
+        background: var(--parchment);
+        border: 3px solid #e5dec4;
+        border-radius: 12px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07) inset,
+          0 3px 12px rgba(0, 0, 0, 0.12);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      #ui h2 {
+        margin: 0 0 12px;
+        font-size: 20px;
+        color: var(--ink);
+        text-align: center;
+      }
+      #stats div {
+        font-size: 15px;
+        color: var(--ink);
+        margin-bottom: 6px;
+      }
+      #pumpBtn {
+        align-self: center;
+        width: 140px;
+        height: 46px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 18px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.08s;
+      }
+      #pumpBtn.active {
+        transform: scale(0.95);
+      }
+      #canvas-holder {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="ui">
+        <div>
+          <h2>Water Stats</h2>
+          <div id="stats">
+            <div>Level: <span id="waterStat">0</span>%</div>
+            <div>Flow rate: <span id="flowStat">0</span> px/s</div>
+          </div>
+        </div>
+        <button id="pumpBtn">PUMP</button>
+      </div>
+      <div id="canvas-holder"></div>
+    </div>
+
+    <script>
+      // ------------------ CONFIG ------------------
+      const CANVAS_W = 520;
+      const CANVAS_H = 520;
+      const HALF_BOWL_W = 160; // half-width of bowl rim
+      const BOWL_DEPTH = 180; // vertical depth below rim at center
+      const MAX_WATER_H = BOWL_DEPTH; // cap water height at rim
+      const PUMP_FLOW_SLOPE = 0.0012; // px/ms² – linear acceleration of flow rate
+      const PIPE_GAP = 180; // vertical gap between pipe end & rim
+
+      // ------------------ STATE ------------------
+      let buttonPressed = false;
+      let pressStart = 0; // ms timestamp of press start
+      let flowRate = 0; // px per ms
+      let waterH = 0; // current filled height (0–BOWL_DEPTH)
+
+      // DOM refs
+      const pumpBtn = document.getElementById("pumpBtn");
+      const waterStat = document.getElementById("waterStat");
+      const flowStat = document.getElementById("flowStat");
+
+      pumpBtn.addEventListener("mousedown", startPump);
+      pumpBtn.addEventListener("touchstart", startPump);
+      pumpBtn.addEventListener("mouseup", stopPump);
+      pumpBtn.addEventListener("mouseleave", stopPump);
+      pumpBtn.addEventListener("touchend", stopPump);
+
+      function startPump(e) {
+        e.preventDefault();
+        buttonPressed = true;
+        pressStart = millis();
+        pumpBtn.classList.add("active");
+      }
+      function stopPump(e) {
+        e.preventDefault();
+        buttonPressed = false;
+        pumpBtn.classList.remove("active");
+      }
+
+      // ------------------ P5 ------------------
+      function setup() {
+        const c = createCanvas(CANVAS_W, CANVAS_H);
+        c.parent("canvas-holder");
+        frameRate(60);
+        strokeCap(ROUND);
+        noCursor();
+      }
+
+      function draw() {
+        background("#ffffff");
+        drawPumpAndPipe();
+        drawBowl();
+        drawWaterStream();
+        updateWater();
+        updateStats();
+      }
+
+      // Draw pump body + pipe
+      function drawPumpAndPipe() {
+        const pumpW = 70,
+          pumpH = 90;
+        const pumpX = width / 2 - pumpW / 2;
+        const pumpY = 20;
+        fill("#d1d5db");
+        noStroke();
+        rect(pumpX, pumpY, pumpW, pumpH, 8);
+        const pipeX = width / 2;
+        const pipeY0 = pumpY + pumpH;
+        const pipeY1 = rimY() - PIPE_GAP;
+        stroke("#9ca3af");
+        strokeWeight(10);
+        line(pipeX, pipeY0, pipeX, pipeY1);
+      }
+
+      // y-coordinate of bowl rim
+      function rimY() {
+        return height - 200;
+      }
+
+      // Draw parabolic bowl and water fill
+      function drawBowl() {
+        const centerX = width / 2;
+        const rimYPos = rimY();
+        const bottomY = rimYPos + BOWL_DEPTH;
+
+        // --- outline ---
+        beginShape();
+        noFill();
+        stroke("#6b7280");
+        strokeWeight(4);
+        for (let x = -HALF_BOWL_W; x <= HALF_BOWL_W; x += 2) {
+          const y =
+            bottomY - (BOWL_DEPTH * (x * x)) / (HALF_BOWL_W * HALF_BOWL_W); // y = bottom - depth*(x/HBW)^2
+          vertex(centerX + x, y);
+        }
+        endShape();
+        // flat rim
+        line(centerX - HALF_BOWL_W, rimYPos, centerX + HALF_BOWL_W, rimYPos);
+
+        // --- water fill ---
+        if (waterH > 0) {
+          const waterSurfaceY = bottomY - waterH;
+          drawingContext.save();
+          drawingContext.beginPath();
+          drawingContext.moveTo(centerX - HALF_BOWL_W, rimYPos);
+          for (let x = -HALF_BOWL_W; x <= HALF_BOWL_W; x += 2) {
+            const y =
+              bottomY - (BOWL_DEPTH * (x * x)) / (HALF_BOWL_W * HALF_BOWL_W);
+            drawingContext.lineTo(centerX + x, y);
+          }
+          drawingContext.closePath();
+          drawingContext.clip();
+          noStroke();
+          fill("#60a5fa");
+          rect(
+            centerX - HALF_BOWL_W,
+            waterSurfaceY,
+            HALF_BOWL_W * 2,
+            bottomY - waterSurfaceY
+          );
+          drawingContext.restore();
+        }
+      }
+
+      // falling water stream
+      function drawWaterStream() {
+        if (!buttonPressed) return;
+        const pipeX = width / 2;
+        const pipeY0 = rimY() - PIPE_GAP;
+        const bottomY = rimY() + BOWL_DEPTH;
+        const waterSurfaceY = bottomY - waterH;
+        stroke("#60a5fa");
+        strokeWeight(8);
+        line(pipeX, pipeY0, pipeX, waterSurfaceY);
+      }
+
+      // state update
+      function updateWater() {
+        if (buttonPressed) {
+          const heldTime = millis() - pressStart;
+          flowRate = PUMP_FLOW_SLOPE * heldTime;
+        }
+        const deltaH = flowRate * deltaTime; // px since last frame
+        waterH = constrain(waterH + deltaH, 0, MAX_WATER_H);
+        if (!buttonPressed) flowRate = 0;
+      }
+
+      function updateStats() {
+        waterStat.textContent = Math.round((waterH / MAX_WATER_H) * 100);
+        flowStat.textContent = (flowRate * 1000).toFixed(1);
+      }
+    </script>
+  </body>
+</html>
